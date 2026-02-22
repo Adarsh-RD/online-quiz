@@ -14,7 +14,20 @@ This repository contains the backend service for a secure, time-bound online qui
 
 The application adheres to Clean Architecture principles, ensuring separation of concerns between external interfaces, business rules, and data access.
 
+```mermaid
+graph TD
+    Client[Client App / Browser] -->|HTTP Request| API[Gin HTTP Router & Middleware]
+    API -->|Validates JWT/RBAC| Handlers[Handlers Layer]
+    Handlers -->|DTOs & Context| Services[Services Layer - Business Logic]
+    Services -->|Domain Models| Repositories[Repository Layer]
+    Repositories -->|GORM / SQL| DB[(PostgreSQL Database)]
+
+    subgraph Clean Architecture Boundaries
+        API -.-> Handlers -.-> Services -.-> Repositories
+    end
 ```
+
+```text
 cmd/
 └── server/
     └── main.go           # Application entry point, dependency injection
@@ -32,6 +45,34 @@ pkg/
 ## Database Schema
 
 The relational schema is normalized and utilizes foreign key constraints to maintain referential integrity.
+
+```mermaid
+erDiagram
+    users ||--o{ quizzes : "creates (teacher)"
+    users ||--o{ quiz_sessions : "takes (student)"
+    quizzes ||--|{ questions : "contains"
+    quizzes ||--o{ quiz_sessions : "has"
+    questions ||--|{ options : "has"
+    quiz_sessions ||--|{ session_questions : "contains shuffled"
+    session_questions ||--|{ session_options : "contains shuffled"
+    session_questions ||--o| session_answers : "answered with"
+
+    users {
+        int id PK
+        string role "teacher, student"
+    }
+    quizzes {
+        int id PK
+        datetime start_time
+        datetime end_time
+    }
+    quiz_sessions {
+        int id PK
+        string state
+        int suspicious_score
+        float score
+    }
+```
 
 - `users`: Stores credentials and RBAC roles (`id`, `username`, `password_hash`, `role`).
 - `quizzes`: Defines quiz metadata and temporal bounds (`id`, `title`, `start_time`, `end_time`, `teacher_id`, `published`).
@@ -66,6 +107,18 @@ The relational schema is normalized and utilizes foreign key constraints to main
 ## State Machine
 
 The progression of a `QuizSession` is strictly governed.
+
+```mermaid
+stateDiagram-v2
+    [*] --> not_started: Session Created
+    not_started --> active: Student Begins
+    active --> submitted: Student Submits Final (SuspiciousScore < Threshold)
+    active --> under_review: Student Submits Final (SuspiciousScore >= Threshold)
+    active --> expired: Time Window Elapses (Async)
+    submitted --> [*]
+    under_review --> [*]
+    expired --> [*]
+```
 
 - `not_started`: Default initial state before a student begins.
 - `active`: The student has started the quiz, the server clocked the `start_time`, and they may submit answers.
